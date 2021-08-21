@@ -141,7 +141,10 @@ namespace mediasoupclient
 		void StopReceiving(const std::string& localId);
 		nlohmann::json GetReceiverStats(const std::string& localId);
 		void RestartIce(const nlohmann::json& iceParameters) override;
-		DataChannel ReceiveDataChannel(const std::string& label, webrtc::DataChannelInit dataChannelInit);
+		DataChannel ReceiveDataChannel(
+		  const nlohmann::json& sctpStreamParameters,
+		  const std::string& label,
+		  webrtc::DataChannelInit dataChannelInit);
 	};
 } // namespace mediasoupclient
 

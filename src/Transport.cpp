@@ -474,11 +474,13 @@ namespace mediasoupclient
 	  const std::string& id,
 	  const std::string& producerId,
 	  const std::string& label,
+    const nlohmann::json& sctpStreamParameters,
 	  const std::string& protocol,
 	  const nlohmann::json& appData)
 	{
 		MSC_TRACE();
 
+    webrtc::DataChannelInterface dataChannel;
 		webrtc::DataChannelInit dataChannelInit;
 		dataChannelInit.protocol = protocol;
 
