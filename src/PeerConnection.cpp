@@ -209,15 +209,16 @@ namespace mediasoupclient
 		MSC_TRACE();
 
 		webrtc::SdpParseError error;
-		webrtc::SessionDescriptionInterface* sessionDescription;
-		rtc::scoped_refptr<SetSessionDescriptionObserver> observer(
-		  new rtc::RefCountedObject<SetSessionDescriptionObserver>());
+		std::unique_ptr<webrtc::SessionDescriptionInterface> sessionDescription;
+		rtc::scoped_refptr<SetRemoteDescriptionObserver> observer = new rtc::RefCountedObject<SetRemoteDescriptionObserver>();
 
 		const auto& typeStr = sdpType2String[type];
 		auto future         = observer->GetFuture();
 
-		sessionDescription = webrtc::CreateSessionDescription(typeStr, sdp, &error);
-		if (sessionDescription == nullptr)
+
+		std::unique_ptr<webrtc::SessionDescriptionInterface> ownedDesc(webrtc::CreateSessionDescription(typeStr, sdp, &error));
+
+		if (ownedDesc == nullptr)
 		{
 			MSC_WARN(
 			  "webrtc::CreateSessionDescription failed [%s]: %s",
@@ -229,7 +230,7 @@ namespace mediasoupclient
 			return future.get();
 		}
 
-		this->pc->SetRemoteDescription(observer, sessionDescription);
+		this->pc->SetRemoteDescription(std::move(ownedDesc), observer);
 
 		return future.get();
 	}
@@ -466,6 +467,41 @@ namespace mediasoupclient
 
 		this->Reject(message);
 	}
+
+	/* SetRemoteDescriptionObserver */
+
+	std::future<void> PeerConnection::SetRemoteDescriptionObserver::GetFuture()
+	{
+		MSC_TRACE();
+
+		return this->promise.get_future();
+	}
+
+	void PeerConnection::SetRemoteDescriptionObserver::Reject(const std::string& error)
+	{
+		MSC_TRACE();
+
+		this->promise.set_exception(std::make_exception_ptr(MediaSoupClientError(error.c_str())));
+	}
+
+	void PeerConnection::SetRemoteDescriptionObserver::OnSetRemoteDescriptionComplete(webrtc::RTCError error)
+	{
+		MSC_TRACE();
+    if(!error.ok()) {
+			MSC_WARN(
+			  "webtc::SetRemoteDescriptionObserver failure [%s:%s]",
+			  webrtc::ToString(error.type()),
+			  error.message());
+
+			auto message = std::string(error.message());
+
+			this->Reject(message);
+		} else {
+      this->promise.set_value();
+		}
+
+	};
+
 
 	/* RTCStatsCollectorCallback */
 
