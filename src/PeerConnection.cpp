@@ -156,6 +156,8 @@ namespace mediasoupclient
 
 		this->pc->CreateOffer(sessionDescriptionObserver, options);
 
+		MSC_WARN("[ProduceFlow PeerConnection::CreateOffer] [pc->CreateOffer called]");
+
 		return future.get();
 	}
 
@@ -297,16 +299,21 @@ namespace mediasoupclient
 		 */
 		rtpTransceiverInit.stream_ids.emplace_back("0");
 
+		MSC_WARN("[ProduceFlow PeerConnection::AddTransceiver] [track.state=%u, track.id=%s, track.enabled=%d]",
+		   track.get()->state(), track.get()->id().c_str(), track.get()->enabled());
+
 		auto result = this->pc->AddTransceiver(
 		  track, rtpTransceiverInit); // NOLINT(performance-unnecessary-value-param)
 
 		if (!result.ok())
 		{
+			MSC_WARN("[ProduceFlow PeerConnection::AddTransceiver] [AddTransceiver result failed, returning null transceiver]");
 			rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver = nullptr;
 
 			return transceiver;
 		}
 
+		MSC_WARN("[ProduceFlow PeerConnection::AddTransceiver] [AddTransceiver result succeeded]");
 		return result.value();
 	}
 

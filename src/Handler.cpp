@@ -129,10 +129,15 @@ namespace mediasoupclient
 		MSC_TRACE();
 
 		if (localSdpObject.empty())
+		{
 			localSdpObject = sdptransform::parse(this->pc->GetLocalDescription());
+			MSC_WARN("[ProduceFlow Handler::SetupTransport] [localSdpObject was empty, parsed local description, now is: %s]", localSdpObject.dump(4).c_str());
+		}
 
 		// Get our local DTLS parameters.
 		auto dtlsParameters = Sdp::Utils::extractDtlsParameters(localSdpObject);
+
+		MSC_WARN("[ProduceFlow Handler::SetupTransport] [localDtlsRole: %s, dtlsParameters: %s]", localDtlsRole.c_str(), dtlsParameters.dump(4).c_str());
 
 		// Set our DTLS role.
 		dtlsParameters["role"] = localDtlsRole;
@@ -140,6 +145,8 @@ namespace mediasoupclient
 		// Update the remote DTLS role in the SDP.
 		std::string remoteDtlsRole = localDtlsRole == "client" ? "server" : "client";
 		this->remoteSdp->UpdateDtlsRole(remoteDtlsRole);
+
+		MSC_WARN("[ProduceFlow Handler::SetupTransport] [UpdatedRemoteDtlsRole to: %s]", remoteDtlsRole.c_str());
 
 		// May throw.
 		this->privateListener->OnConnect(dtlsParameters);
@@ -179,7 +186,7 @@ namespace mediasoupclient
 		if (!track)
 			MSC_THROW_TYPE_ERROR("missing track");
 
-		MSC_DEBUG("[kind:%s, track->id():%s]", track->kind().c_str(), track->id().c_str());
+		MSC_WARN("[ProduceFlow SendHandler::Send] [kind:%s, track->id():%s]", track->kind().c_str(), track->id().c_str());
 
 		if (encodings && encodings->size() > 1)
 		{
@@ -192,19 +199,29 @@ namespace mediasoupclient
 
 		json sendingRtpParameters = this->sendingRtpParametersByKind[track->kind()];
 
+		MSC_WARN("[ProduceFlow SendHandler::Send] [sendingRtpParameters: %s]", sendingRtpParameters.dump(4).c_str());
+
 		// This may throw.
 		sendingRtpParameters["codecs"] = ortc::reduceCodecs(sendingRtpParameters["codecs"], codec);
 
+		MSC_WARN("[ProduceFlow SendHandler::Send] [reducedLocalCodecs: %s]", sendingRtpParameters["codecs"].dump(4).c_str());
+
 		json sendingRemoteRtpParameters = this->sendingRemoteRtpParametersByKind[track->kind()];
+
+		MSC_WARN("[ProduceFlow SendHandler::Send] [sendingRemoteRtpParameters: %s]", sendingRemoteRtpParameters.dump(4).c_str());
 
 		// This may throw.
 		sendingRemoteRtpParameters["codecs"] =
 		  ortc::reduceCodecs(sendingRemoteRtpParameters["codecs"], codec);
 
+		MSC_WARN("[ProduceFlow SendHandler::Send] [reducedRemoteCodecs: %s]", sendingRemoteRtpParameters["codecs"].dump(4).c_str());
+
 		const Sdp::RemoteSdp::MediaSectionIdx mediaSectionIdx = this->remoteSdp->GetNextMediaSectionIdx();
 
 		webrtc::RtpTransceiverInit transceiverInit;
 		transceiverInit.direction = webrtc::RtpTransceiverDirection::kSendOnly;
+
+		MSC_WARN("[ProduceFlow SendHandler::Send] [mediaSectionIdx: %zu]", mediaSectionIdx.idx);
 
 		if (encodings && !encodings->empty())
 			transceiverInit.send_encodings = *encodings;
@@ -225,12 +242,17 @@ namespace mediasoupclient
 			webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
 
 			offer               = this->pc->CreateOffer(options);
+			MSC_WARN("[ProduceFlow SendHandler::Send] [offer created: %s]", offer.c_str());
 			auto localSdpObject = sdptransform::parse(offer);
+			MSC_WARN("[ProduceFlow SendHandler::Send] [offer parsed to localSdpObject: %s]", localSdpObject.dump(4).c_str());
 
 			// Transport is not ready.
 			if (!this->transportReady)
+			{
+				MSC_WARN("[ProduceFlow SendHandler::Send] [transport not ready, calling SetupTransport]");
 				this->SetupTransport(
-				  !this->forcedLocalDtlsRole.empty() ? this->forcedLocalDtlsRole : "server", localSdpObject);
+						!this->forcedLocalDtlsRole.empty() ? this->forcedLocalDtlsRole : "server", localSdpObject);
+			}
 
 			std::string scalability_mode =
 			  encodings && encodings->size()
@@ -244,22 +266,28 @@ namespace mediasoupclient
 
 			auto mimeType = sendingRtpParameters["codecs"][0]["mimeType"].get<std::string>();
 
+			MSC_WARN("[ProduceFlow SendHandler::Send] [mimeType: %s, layers: %s]", mimeType.c_str(), layers.dump(4).c_str());
+
 			std::transform(mimeType.begin(), mimeType.end(), mimeType.begin(), ::tolower);
 
 			if (encodings && encodings->size() == 1 && spatialLayers > 1 && mimeType == "video/vp9")
 			{
-				MSC_DEBUG("send() | enabling legacy simulcast for VP9 SVC");
+				MSC_WARN("[ProduceFlow SendHandler::Send] [enabling legacy simulcast for VP9 SVC]");
 
 				hackVp9Svc             = true;
 				localSdpObject         = sdptransform::parse(offer);
 				json& offerMediaObject = localSdpObject["media"][mediaSectionIdx.idx];
 
+				MSC_WARN("[ProduceFlow SendHandler::Send] [VP9 SVC localSdpObject: %s, offerMediaObject: %s]", localSdpObject.dump(4).c_str(), offerMediaObject.dump(4).c_str());
+
 				Sdp::Utils::addLegacySimulcast(offerMediaObject, spatialLayers);
 
 				offer = sdptransform::write(localSdpObject);
+
+				MSC_WARN("[ProduceFlow SendHandler::Send] [VP9 SVC offer (after addLegacySimulcast & write): %s]", offer.c_str());
 			}
 
-			MSC_DEBUG("calling pc->SetLocalDescription():\n%s", offer.c_str());
+			MSC_WARN("[ProduceFlow SendHandler::Send] calling pc->SetLocalDescription():\n%s", offer.c_str());
 
 			this->pc->SetLocalDescription(PeerConnection::SdpType::OFFER, offer);
 
@@ -274,12 +302,14 @@ namespace mediasoupclient
 			// Panic here. Try to undo things.
 			transceiver->SetDirectionWithError(webrtc::RtpTransceiverDirection::kInactive);
 			transceiver->sender()->SetTrack(nullptr);
-
+			MSC_WARN("[ProduceFlow SendHandler::Send] exception: %s", error.what());
 			throw;
 		}
 
 		auto localSdp       = this->pc->GetLocalDescription();
+		MSC_WARN("[ProduceFlow SendHandler::Send] localSdp: %s", localSdp.c_str());
 		auto localSdpObject = sdptransform::parse(localSdp);
+		MSC_WARN("[ProduceFlow SendHandler::Send] localSdp parsed: %s", localSdpObject.dump(4).c_str());
 
 		json& offerMediaObject = localSdpObject["media"][mediaSectionIdx.idx];
 
@@ -290,6 +320,7 @@ namespace mediasoupclient
 		if (encodings == nullptr || encodings->empty())
 		{
 			sendingRtpParameters["encodings"] = Sdp::Utils::getRtpEncodings(offerMediaObject);
+			MSC_WARN("[ProduceFlow SendHandler::Send] encodings empty, used getRtpEncodings to fill: %s", sendingRtpParameters["encodings"].dump(4).c_str());
 		}
 		// Set RTP encodings by parsing the SDP offer and complete them with given
 		// one if just a single encoding has been given.
@@ -304,6 +335,8 @@ namespace mediasoupclient
 				newEncodings = json::array({ newEncodings[0] });
 
 			sendingRtpParameters["encodings"] = newEncodings;
+
+			MSC_WARN("[ProduceFlow SendHandler::Send] 1 encoding: %s", sendingRtpParameters["encodings"].dump(4).c_str());
 		}
 		// Otherwise if more than 1 encoding are given use them verbatim.
 		else
@@ -317,6 +350,8 @@ namespace mediasoupclient
 				fillJsonRtpEncodingParameters(jsonEncoding, encoding);
 				sendingRtpParameters["encodings"].push_back(jsonEncoding);
 			}
+
+			MSC_WARN("[ProduceFlow SendHandler::Send] more than 1 encoding: %s", sendingRtpParameters["encodings"].dump(4).c_str());
 		}
 
 		// If VP8 and there is effective simulcast, add scalabilityMode to each encoding.
@@ -337,6 +372,8 @@ namespace mediasoupclient
 			}
 		}
 
+		MSC_WARN("[ProduceFlow SendHandler::Send] calling remoteSdk->Send");
+
 		this->remoteSdp->Send(
 		  offerMediaObject,
 		  mediaSectionIdx.reuseMid,
@@ -346,12 +383,14 @@ namespace mediasoupclient
 
 		auto answer = this->remoteSdp->GetSdp();
 
-		MSC_DEBUG("calling pc->SetRemoteDescription():\n%s", answer.c_str());
+		MSC_WARN("[ProduceFlow SendHandler::Send] remoteSdp->GetSdp answer: %s", answer.c_str());
 
 		this->pc->SetRemoteDescription(PeerConnection::SdpType::ANSWER, answer);
 
 		// Store in the map.
 		this->mapMidTransceiver[localId] = transceiver;
+
+		MSC_WARN("[ProduceFlow SendHandler::Send] transceiver stored in map with localId: %s", localId.c_str());
 
 		SendResult sendResult;
 
